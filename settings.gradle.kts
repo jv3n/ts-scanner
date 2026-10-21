@@ -1,1 +1,1 @@
-rootProject.name = "mtr"
+rootProject.name = "ts-scanner"
