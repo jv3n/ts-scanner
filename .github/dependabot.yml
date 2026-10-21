@@ -1,4 +1,4 @@
-# Automated dependency updates. See issue #18.
+# Automated dependency updates.
 # The CI workflow (spotlessCheck + build) gates every PR opened here.
 version: 2
 
@@ -7,7 +7,7 @@ updates:
   # Verified on the first run: the wrapper IS bumped (gradlew, gradlew.bat, the jar and
   # gradle-wrapper.properties), and the Ktor version behind `val ktor = "..."` is resolved.
   # Watch the wrapper PRs: regenerating gradlew.bat rewrites its line endings, and
-  # .gitattributes (* text=auto eol=lf) must win -> see the "Fins de ligne" note in CLAUDE.md.
+  # .gitattributes (* text=auto eol=lf) must win -> see "Line endings" in CLAUDE.md.
   - package-ecosystem: gradle
     directory: /
     schedule:

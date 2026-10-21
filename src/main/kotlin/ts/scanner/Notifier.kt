@@ -1,4 +1,4 @@
-package mtr
+package ts.scanner
 
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
@@ -19,7 +19,7 @@ import kotlinx.serialization.json.put
 import java.time.Instant
 
 /**
- * Alerting for critical events (kill switch, disconnects, shutdown) — roadmap #2.
+ * Run reports of the scan job.
  * Always logs locally; also pushes to Telegram when configured.
  */
 interface Notifier {
