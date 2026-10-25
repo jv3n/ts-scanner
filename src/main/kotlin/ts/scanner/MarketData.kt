@@ -32,10 +32,17 @@ data class TickerReference(
     val marketCapUsd: Double? = null,
 )
 
-/** One session's low and close — the two numbers Rule 201 needs. */
-private data class DailyBar(
+/**
+ * One ticker's session, from the grouped daily bars : open, high, low and close of the **regular
+ * session** only — checked on GLND 21/09, whose 3.72 PM high is not its 3.39 high here — and the
+ * volume of the whole day, extended hours included.
+ */
+data class DailyBar(
+    val open: Double,
+    val high: Double,
     val low: Double,
     val close: Double,
+    val volume: Double,
 )
 
 /**
@@ -80,6 +87,9 @@ interface MarketDataProvider {
      * Derived from the rule, see [ssrTriggered].
      */
     suspend fun getInheritedSsr(tickers: List<String>): Set<String>
+
+    /** Every ticker's session on [date], unadjusted, in one request — null when [date] was not a trading day. */
+    suspend fun getGroupedDaily(date: LocalDate): Map<String, DailyBar>?
 
     /** [ticker]'s 1-min bars on [date], extended hours included, unadjusted — empty on a day it did not trade. */
     suspend fun getMinuteBars(
@@ -165,7 +175,7 @@ class MassiveProvider(
         var date = LocalDate.now(NEW_YORK).minusDays(1)
         var probes = 0
         while (sessions.size < 2 && probes < MAX_SESSION_PROBES) {
-            groupedDaily(date, wanted)?.let { sessions += it }
+            groupedDaily(date, adjusted = true)?.filterKeys { it in wanted }?.let { sessions += it }
             date = date.minusDays(1)
             probes++
         }
@@ -226,15 +236,17 @@ class MassiveProvider(
             ?.jsonPrimitive
             ?.doubleOrNull
 
+    override suspend fun getGroupedDaily(date: LocalDate): Map<String, DailyBar>? = groupedDaily(date, adjusted = false)
+
     /** Null when [date] was not a trading day (no results published). */
     private suspend fun groupedDaily(
         date: LocalDate,
-        wanted: Set<String>,
+        adjusted: Boolean,
     ): Map<String, DailyBar>? {
         val results =
             client
                 .get("$MASSIVE_REST_BASE/v2/aggs/grouped/locale/us/market/stocks/$date") {
-                    parameter("adjusted", "true")
+                    parameter("adjusted", adjusted.toString())
                 }.body<JsonObject>()["results"]
                 ?.jsonArray
                 .orEmpty()
@@ -242,10 +254,17 @@ class MassiveProvider(
         return results
             .mapNotNull { el ->
                 val o = el.jsonObject
-                val ticker = o["T"]?.jsonPrimitive?.content?.takeIf { it in wanted } ?: return@mapNotNull null
-                val low = o["l"]?.jsonPrimitive?.doubleOrNull ?: return@mapNotNull null
-                val close = o["c"]?.jsonPrimitive?.doubleOrNull ?: return@mapNotNull null
-                ticker to DailyBar(low, close)
+
+                fun field(name: String) = o[name]?.jsonPrimitive?.doubleOrNull
+                val ticker = o["T"]?.jsonPrimitive?.content ?: return@mapNotNull null
+                ticker to
+                    DailyBar(
+                        open = field("o") ?: return@mapNotNull null,
+                        high = field("h") ?: return@mapNotNull null,
+                        low = field("l") ?: return@mapNotNull null,
+                        close = field("c") ?: return@mapNotNull null,
+                        volume = field("v") ?: 0.0,
+                    )
             }.toMap()
     }
 
