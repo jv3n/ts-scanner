@@ -7,9 +7,14 @@ import java.time.Duration
  * on its move in percent : A Base → Apex, R Apex → Rejection (down), E Rejection → Echo (up).
  */
 data class DoubleTopRules(
-    val extension: Band = Band(52.5, 7.5),
-    val rejection: Band = Band(20.0, 2.0),
-    val echo: Band = Band(20.0, 2.0),
+    val extension: Band = Band(120.0, 80.0),
+    val rejection: Band = Band(23.5, 8.5),
+    val echo: Band = Band(27.5, 12.5),
+    /**
+     * How far the Echo may clear the Apex — the sheet's fake-out of the last top. Past it, the Echo
+     * broke out : no double top (the sheet's took-the-top DTs cleared it by 1.5 to 5.1 %).
+     */
+    val maxEchoOverApexPercent: Double = 6.0,
     /**
      * How long each leg may take, in minutes — a push that takes all morning is no push. Set from the
      * sheet's own double tops : A under the hour, R a quarter of an hour at most.
@@ -41,8 +46,9 @@ data class DoubleTop(
  * Swing lows and highs are confirmed as the price turns ; each new swing high is tried as the Echo
  * of the swings before it. The first double top of the day wins : `trade` holds one per day.
  *
- * An Echo above the Apex is the fake-out the sheet allows, kept only once the price falls back
- * under the Rejection ; if it never does, it was a breakout and nothing is emitted.
+ * Until the price breaks under the Rejection, the Echo is the highest test of the Apex. Above the
+ * Apex — the sheet's fake-out — it counts only once the price falls back under the Rejection, and
+ * only up to [DoubleTopRules.maxEchoOverApexPercent] : past that, a breakout, and the search goes on.
  */
 class DoubleTopDetector(
     private val rules: DoubleTopRules = DoubleTopRules(),
@@ -58,41 +64,57 @@ class DoubleTopDetector(
     private var heading: Swing = Swing.LOW
     private var extreme: Point? = null
 
-    /** An Echo above the Apex, waiting for the fall under the Rejection that proves it. */
-    private var pending: DoubleTop? = null
-    private var found: DoubleTop? = null
+    /**
+     * The double top read so far. Until the price breaks under the Rejection, a higher test of the Apex
+     * — in band, in time, not past [DoubleTopRules.maxEchoOverApexPercent] — becomes the Echo (SPHL
+     * 21/10 : 5.55 at 09:49, then 5.94 at 09:56) ; the first test past any of them settles it.
+     */
+    private var candidate: DoubleTop? = null
+    private var settled = false
+    private var broke = false
     private var sink: SinkTracker? = null
 
-    /** The double top once its four first points are in — before the close, without its Sink. */
-    val detected: DoubleTop? get() = found
+    /** The double top once its four first points count — before the close, without its Sink. */
+    val detected: DoubleTop? get() = candidate?.takeIf { it.counts }
 
     fun feed(bar: Bar) {
-        if (bar.time >= MARKET_CLOSE) return
-        if (found != null) {
-            sink!!.feed(bar)
-            return
-        }
-        pending?.let { candidate ->
-            if (bar.low < candidate.rejection.price) {
-                found = candidate
-                pending = null
-                sink = SinkTracker(rules.sinkReboundPercent).also { it.feed(bar) }
-                return
-            }
-            if (bar.high > candidate.echo.price) {
-                // Past its band or its window, the Echo is no longer testing the Apex : a breakout, dropped.
-                val higher = Point(bar.time, bar.high)
-                pending =
-                    candidate.copy(echo = higher).takeIf {
-                        percentMove(candidate.rejection.price, higher.price) in rules.echo &&
-                            minutes(candidate.rejection, higher) <= rules.maxEchoMinutes
-                    }
-            }
-        }
+        // Session only, Base included : the user takes no double top in the extended hours.
+        if (bar.time < MARKET_OPEN || bar.time >= MARKET_CLOSE) return
+        val top = candidate
         swing(bar)
+        if (top == null) return
+        if (!settled && !broke && bar.high > top.echo.price) {
+            val higher = Point(bar.time, bar.high)
+            val stillTesting =
+                percentMove(top.apex.price, higher.price) <= rules.maxEchoOverApexPercent &&
+                    percentMove(top.rejection.price, higher.price) in rules.echo &&
+                    minutes(top.rejection, higher) <= rules.maxEchoMinutes
+            when {
+                stillTesting -> {
+                    candidate = top.copy(echo = higher)
+                    sink = SinkTracker(rules.sinkReboundPercent)
+                    return
+                }
+                // A fake-out the price carried on past : a breakout, no double top — the search goes on.
+                top.echo.price > top.apex.price -> {
+                    candidate = null
+                    sink = null
+                    return
+                }
+                else -> settled = true
+            }
+        }
+        if (bar.low < top.rejection.price) broke = true
+        sink!!.feed(bar)
     }
 
-    fun result(): DoubleTop? = found?.copy(sink = sink?.sink)
+    /**
+     * The double top at the close, with its Sink — an Echo above the Apex counts only once the price
+     * fell back under the Rejection : the sheet's fake-out, not a breakout.
+     */
+    fun result(): DoubleTop? = candidate?.takeIf { it.counts }?.copy(sink = sink?.sink)
+
+    private val DoubleTop.counts get() = echo.price <= apex.price || broke
 
     private fun swing(bar: Bar) {
         val current = extreme
@@ -116,7 +138,7 @@ class DoubleTopDetector(
                     pivots += Pivot(Swing.HIGH, current)
                     heading = Swing.LOW
                     extreme = Point(bar.time, bar.low)
-                    if (pending == null) tryEcho(current, bar)
+                    if (candidate == null) tryEcho(current, bar)
                 }
         }
     }
@@ -140,6 +162,7 @@ class DoubleTopDetector(
                 // The Rejection is the low of the whole pullback : a lower swing after the Apex is the real one.
                 if (lows.any { it.time > apex.time && it.time < echo.time && it.price < rejection.price }) continue
                 if (-percentMove(apex.price, rejection.price) !in rules.rejection) continue
+                if (percentMove(apex.price, echo.price) > rules.maxEchoOverApexPercent) continue
                 if (minutes(apex, rejection) > rules.maxRejectionMinutes) continue
                 for (base in lows.filter { it.time < apex.time }.asReversed()) {
                     if (lows.any { it.time > base.time && it.time < apex.time && it.price < base.price }) continue
@@ -147,13 +170,10 @@ class DoubleTopDetector(
                     if (highs.any { it.time > base.time && it.time < rejection.time && it.price > apex.price }) continue
                     if (percentMove(base.price, apex.price) !in rules.extension) continue
                     if (minutes(base, apex) > rules.maxExtensionMinutes) continue
-                    val top = DoubleTop(base, apex, rejection, echo)
-                    if (echo.price > apex.price) {
-                        pending = top
-                    } else {
-                        found = top
-                        sink = SinkTracker(rules.sinkReboundPercent).also { it.feed(bar) }
-                    }
+                    candidate = DoubleTop(base, apex, rejection, echo)
+                    settled = false
+                    broke = bar.low < rejection.price
+                    sink = SinkTracker(rules.sinkReboundPercent).also { it.feed(bar) }
                     return
                 }
             }
