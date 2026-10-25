@@ -23,7 +23,7 @@ fun main(args: Array<String>) {
     val failed =
         runBlocking {
             try {
-                val job = D1Job(PacedMarketData(massive, Pacer()), trade, Clock.systemUTC())
+                val job = D1Job(PacedMarketData(massive, Pacer()), trade, Clock.systemUTC(), progress = ::println)
                 val today = LocalDate.now(NEW_YORK)
                 val days = if (from == null) listOf(job.previousTradingDay(today)) else job.tradingDays(from, today)
                 var failures = 0
