@@ -17,7 +17,7 @@ import kotlin.test.assertTrue
  * The D-1 job end to end (#35), against a Massive stubbed with real fixtures and a `trade` that
  * records what it is sent. What it protects :
  *
- * - a known day — 16/10, ZTG and SGRX — comes out as the GUS and the double top the detectors read,
+ * - a known day — 16/10, ZTG and SGRX — comes out as the GUSs and the double top the detectors read,
  *   pushed in `trade`'s shape, and the run is reported with its counts ;
  * - the trading day is read off the data : a Monday scans Friday without asking for the weekend, the
  *   morning after a holiday scans the session before it ;
@@ -26,7 +26,7 @@ import kotlin.test.assertTrue
  */
 class D1JobTest {
     @Test
-    fun `16-10 — ZTG's GUS and double top and SGRX's GUS are pushed, the run reported with its counts`() =
+    fun `16-10 — ZTG's GUS, SGRX's GUS and double top are pushed, the run reported with its counts`() =
         runBlocking {
             val trade = RecordingTrade()
 
@@ -34,7 +34,7 @@ class D1JobTest {
 
             val pushed = trade.pushed.single()
             assertEquals("2026-10-16", pushed.tradingDate)
-            assertEquals(setOf("ZTG GUS", "ZTG DT", "SGRX GUS"), pushed.stats.map { "${it.ticker} ${it.pattern}" }.toSet())
+            assertEquals(setOf("ZTG GUS", "SGRX GUS", "SGRX DT"), pushed.stats.map { "${it.ticker} ${it.pattern}" }.toSet())
             assertEquals(Triple(2, 2, 1), Triple(scan.tickersScanned, scan.gusFound, scan.dtFound))
             val run = trade.runs.single()
             assertEquals(Triple(2, 2, 1), Triple(run.tickersScanned, run.gusFound, run.dtFound))
@@ -63,13 +63,13 @@ class D1JobTest {
     fun `the run says how many tickers it will read, then each one and what it found`() =
         runBlocking {
             val lines = mutableListOf<String>()
-            val market = market(failing = mapOf("SGRX" to IOException("Massive answered 500")))
+            val market = market(failing = mapOf("ZTG" to IOException("Massive answered 500")))
 
             D1Job(market, RecordingTrade(), CLOCK, progress = { lines += it }).scan(DAY)
 
             assertEquals("2026-10-16 — 2 tickers to read, ~1 min", lines.first())
-            assertTrue(lines.any { it.endsWith("ZTG — GUS, DT") }, "$lines")
-            assertTrue(lines.any { it.endsWith("SGRX — not read (Massive answered 500)") }, "$lines")
+            assertTrue(lines.any { it.endsWith("SGRX — GUS, DT") }, "$lines")
+            assertTrue(lines.any { it.endsWith("ZTG — not read (Massive answered 500)") }, "$lines")
             assertTrue(lines.drop(1).dropLast(1).all { it.startsWith("[") }, "$lines")
             assertEquals("2026-10-16 — done in 0 min : 1 GUS, 1 DT, 2 created, 0 skipped", lines.last())
         }
@@ -137,21 +137,21 @@ class D1JobTest {
     fun `a ticker whose bars fail is named in the report, the rest of the day is still pushed`() =
         runBlocking {
             val trade = RecordingTrade()
-            val market = market(failing = mapOf("SGRX" to IOException("Massive answered 500")))
+            val market = market(failing = mapOf("ZTG" to IOException("Massive answered 500")))
 
             val scan = job(market, trade).scan(DAY)
 
             assertEquals(
-                setOf("ZTG GUS", "ZTG DT"),
+                setOf("SGRX GUS", "SGRX DT"),
                 trade.pushed
                     .single()
                     .stats
                     .map { "${it.ticker} ${it.pattern}" }
                     .toSet(),
             )
-            assertEquals(listOf("SGRX (Massive answered 500)"), scan.missed)
+            assertEquals(listOf("ZTG (Massive answered 500)"), scan.missed)
             val run = trade.runs.single()
-            assertEquals("1 of 2 tickers not read — SGRX (Massive answered 500)", run.error)
+            assertEquals("1 of 2 tickers not read — ZTG (Massive answered 500)", run.error)
             assertTrue(run.finishedAt != null)
         }
 

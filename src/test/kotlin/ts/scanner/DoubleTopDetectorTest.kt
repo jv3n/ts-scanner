@@ -9,16 +9,30 @@ import kotlin.test.assertNull
 
 /**
  * The double top detector on real days of 1-min bars, the DTs of the user's stats sheet (#34), with
- * the bands settled with the user : A 45–60 %, R 18–22 %, E 18–22 %, each leg within its time.
+ * the loose bands settled with the user (#45) : A 40–200 %, R 15–32 %, E 15–40 %, each leg within
+ * its time, the session only — loose on purpose, the review rejects with a reason.
  *
  * What it protects : the Apex is the top of the whole push and the Rejection the low of the whole
- * pullback (WFF read a 3.10 Apex under a 3.43 one) ; a leg out of its band is no double top, even
- * one the sheet records — the detector misses those on purpose ; an Echo above the Apex counts only
- * once the price falls back under the Rejection.
+ * pullback ; until the price breaks under the Rejection, the Echo is the highest test of the Apex ;
+ * an Echo above the Apex — the sheet's fake-out — counts once the price falls back under the
+ * Rejection, and only up to 6 % past the Apex : further, a breakout. The first double top of the day
+ * wins — on MNDR and WFF an earlier one than the sheet's.
  *
  * Times are Massive's, the minute a bar opens : the sheet reads the one after, its end.
  */
 class DoubleTopDetectorTest {
+    @Test
+    fun `SPHL — the Echo that took the Apex by 4 %, then the fall — the sheet's double top, point by point`() {
+        val top = detect("SPHL", "2026-10-21")
+
+        assertEquals(Point(time("09:30"), 2.87), top.base)
+        assertEquals(Point(time("09:41"), 5.6999), top.apex)
+        assertEquals(Point(time("09:46"), 4.56), top.rejection)
+        // 5.55 at 09:49 tested the Apex first ; the price had not broken 4.56 yet, so 5.94 is the Echo.
+        assertEquals(Point(time("09:56"), 5.94), top.echo)
+        assertEquals(Point(time("10:13"), 3.66), top.sink)
+    }
+
     @Test
     fun `KNDI — the sheet's double top, point by point`() {
         val top = detect("KNDI", "2026-09-28")
@@ -27,73 +41,41 @@ class DoubleTopDetectorTest {
         assertEquals(Point(time("11:04"), 1.03), top.apex)
         // Massive's low is 0.81 ; the chart read 0.80.
         assertEquals(Point(time("11:06"), 0.81), top.rejection)
-        // The sheet's 1.02 is +26 % off the Rejection, out of band : the first test of the Apex is.
-        assertEquals(Point(time("11:12"), 0.98), top.echo)
+        assertEquals(Point(time("11:15"), 1.02), top.echo)
     }
 
     @Test
-    fun `MNDR — the sheet's Apex and Rejection, to the minute of the chart`() {
-        val top = detect("MNDR", "2026-10-12")
-
-        assertEquals(Point(time("10:25"), 5.28), top.apex)
-        assertEquals(Point(time("10:30"), 4.29), top.rejection)
-    }
-
-    @Test
-    fun `DRMA — the push measured from its real start, inside the band the sheet's base misses`() {
-        // The sheet starts the push at 0.86 : +37 %, out of band. Its swing low of 09:50 gives +51 %.
+    fun `DRMA — the sheet's Apex, Rejection and Echo, and the sink read once the day is over`() {
         val top = detect("DRMA", "2026-10-15")
 
-        assertEquals(Point(time("09:50"), 0.7823), top.base)
         assertEquals(Point(time("10:31"), 1.18), top.apex)
         assertEquals(Point(time("10:39"), 0.95), top.rejection)
         assertEquals(Point(time("10:53"), 1.13), top.echo)
-    }
-
-    @Test
-    fun `the sink is the low of the first fall after the Echo, read once the day is over`() {
-        val top = detect("DRMA", "2026-10-15")
-
         assertEquals(Point(time("12:39"), 0.77), top.sink)
     }
 
     @Test
-    fun `the Apex is the top of the whole push — WFF's 3·43, which takes the rejection out of band`() {
-        // Read under the 3.10 swing, R was 21.6 % ; under the real 3.43, it is 29 % — the sheet's own.
-        assertNull(run("WFF", "2026-10-14"))
+    fun `the first double top of the day wins — MNDR reads the 09·36 one, before the sheet's 10·25`() {
+        val top = detect("MNDR", "2026-10-12")
+
+        assertEquals(Point(time("09:36"), 3.55), top.apex)
+        assertEquals(Point(time("09:38"), 3.0), top.rejection)
     }
 
     @Test
-    fun `a rejection under eighteen percent is a breath, not a double top — CPHI, NCT`() {
+    fun `the extended hours are left out, Base included — MNDR's 07·12 double top is not read`() {
+        val top = detect("MNDR", "2026-10-12")
+
+        assertEquals(Point(time("09:30"), 2.3), top.base)
+    }
+
+    @Test
+    fun `a rejection under fifteen percent is a breath, not a double top — CPHI`() {
         assertNull(run("CPHI", "2026-10-08"))
-        assertNull(run("NCT", "2026-10-08"))
     }
 
     @Test
-    fun `an extension past sixty percent is out of band — ZEO, SPHL`() {
-        assertNull(run("ZEO", "2026-09-22"))
-        assertNull(run("SPHL", "2026-10-21"))
-    }
-
-    @Test
-    fun `a push that takes all morning is no push — JYD, from 04·04 to 11·07`() {
-        assertNull(run("JYD", "2026-10-13"))
-        // Only the time keeps it out : with no limit, its legs are in band.
-        assertNotNull(run("JYD", "2026-10-13", DoubleTopRules(maxExtensionMinutes = 24 * 60)))
-    }
-
-    @Test
-    fun `under the sheet's bands an echo cannot clear the Apex — R 18 % at least, E 22 % at most`() {
-        // 0.82 × 1.22 ≈ 1.0004 : a 22 % echo off an 18 % rejection lands on the Apex itself.
-        val rules = DoubleTopRules()
-        val highest = (1 - (rules.rejection.target - rules.rejection.acceptance) / 100) * (1 + (rules.echo.target + rules.echo.acceptance) / 100)
-
-        assertEquals(1.0004, highest, 0.0001)
-    }
-
-    @Test
-    fun `with a wider echo band, an echo above the Apex is kept once the price falls back under the Rejection`() {
-        // SPHL's shape on the sheet : an Echo that takes the Apex, then the fall.
+    fun `an echo above the Apex is kept once the price falls back under the Rejection`() {
         val top =
             feed(
                 bar("10:00", 2.00, 2.00),
@@ -109,7 +91,7 @@ class DoubleTopDetectorTest {
     }
 
     @Test
-    fun `with a wider echo band, an echo above the Apex that never falls back is a breakout`() {
+    fun `an echo above the Apex that never falls back is a breakout`() {
         val top =
             feed(
                 bar("10:00", 2.00, 2.00),
@@ -124,18 +106,21 @@ class DoubleTopDetectorTest {
         assertNull(top)
     }
 
-    private fun detect(
-        ticker: String,
-        date: String,
-    ): DoubleTop = assertNotNull(run(ticker, date), "$ticker on $date not read as a double top")
+    @Test
+    fun `an echo more than six percent past the Apex is a breakout, even back under the Rejection`() {
+        // 3.05 → 3.10 is the fake-out ; 3.30 clears the Apex by 8 % : the move broke out.
+        val top =
+            feed(
+                bar("10:00", 2.00, 2.00),
+                bar("10:20", 3.05, 2.90),
+                bar("10:25", 2.95, 2.45),
+                bar("10:35", 2.70, 2.55),
+                bar("10:40", 3.10, 2.95),
+                bar("10:42", 3.30, 3.05),
+                bar("10:50", 2.60, 2.40),
+            )
 
-    private fun run(
-        ticker: String,
-        date: String,
-        rules: DoubleTopRules = DoubleTopRules(),
-    ): DoubleTop? {
-        val session = BarFixture.load(ticker, date)
-        return DoubleTopDetector(rules).also { d -> session.bars.forEach(d::feed) }.result()
+        assertNull(top)
     }
 
     @Test
@@ -158,8 +143,39 @@ class DoubleTopDetectorTest {
         assertNull(top)
     }
 
-    /** E 20–30 % : room for an Echo above the Apex, which the sheet's bands leave none of. */
-    private fun feed(vararg bars: Bar): DoubleTop? = DoubleTopDetector(DoubleTopRules(echo = Band(25.0, 5.0))).also { d -> bars.forEach(d::feed) }.result()
+    @Test
+    fun `a push that takes too long is no push — the time window alone keeps it out`() {
+        val bars =
+            arrayOf(
+                bar("10:00", 2.00, 2.00),
+                bar("11:30", 3.05, 2.90),
+                bar("11:35", 2.95, 2.45),
+                bar("11:45", 2.70, 2.55),
+                bar("11:50", 2.95, 2.80),
+                bar("11:55", 2.60, 2.30),
+            )
+
+        assertNull(feed(*bars))
+        assertNotNull(feed(*bars, rules = DoubleTopRules(maxExtensionMinutes = 24 * 60)))
+    }
+
+    private fun detect(
+        ticker: String,
+        date: String,
+    ): DoubleTop = assertNotNull(run(ticker, date), "$ticker on $date not read as a double top")
+
+    private fun run(
+        ticker: String,
+        date: String,
+    ): DoubleTop? {
+        val session = BarFixture.load(ticker, date)
+        return DoubleTopDetector().also { d -> session.bars.forEach(d::feed) }.result()
+    }
+
+    private fun feed(
+        vararg bars: Bar,
+        rules: DoubleTopRules = DoubleTopRules(),
+    ): DoubleTop? = DoubleTopDetector(rules).also { d -> bars.forEach(d::feed) }.result()
 
     private fun bar(
         time: String,
