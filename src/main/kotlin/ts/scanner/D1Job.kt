@@ -61,8 +61,12 @@ class D1Job(
         var dt = 0
         try {
             val session = session(day) ?: error("$day is not a trading day")
-            val (_, previous) = sessionBefore(day)
-            val candidates = universe(session, previous, universeRules)
+            val (previousDay, previous) = sessionBefore(day)
+            val cut = universe(session, previous, universeRules)
+            // A reverse split since the previous session makes its close a pre-split price : a fake
+            // gap of thousands of percent (PASW 23/10, +4 415 %) — the sheet's criterion 8.
+            val split = if (cut.isEmpty()) emptySet() else market.getReverseSplits(cut.map { it.ticker }, previousDay.plusDays(1), day)
+            val candidates = cut.filterNot { it.ticker in split }
             val stats = mutableListOf<ScannedStat>()
             val missed = mutableListOf<String>()
             for (candidate in candidates) {

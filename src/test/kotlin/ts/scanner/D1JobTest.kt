@@ -70,6 +70,24 @@ class D1JobTest {
         }
 
     @Test
+    fun `a reverse split since the previous session is left out — its close is a pre-split price`() =
+        runBlocking {
+            val market = market(reverseSplits = setOf("SGRX"))
+            val trade = RecordingTrade()
+
+            job(market, trade).scan(DAY)
+
+            assertEquals(setOf("ZTG"), market.barsAskedFor)
+            assertEquals(listOf(DAY to DAY), market.splitsAskedFor)
+            assertTrue(
+                trade.pushed
+                    .single()
+                    .stats
+                    .none { it.ticker == "SGRX" },
+            )
+        }
+
+    @Test
     fun `a Monday scans Friday, without asking for the weekend`() =
         runBlocking {
             val market = market()
@@ -143,7 +161,10 @@ class D1JobTest {
     ) = D1Job(market, trade, Clock.fixed(Instant.parse("2026-10-19T10:10:00Z"), ZoneOffset.UTC))
 
     /** 16/10 from the fixtures, a quiet ticker beside them, and the closes of 15/10 they gapped from. */
-    private fun market(failing: Map<String, Exception> = emptyMap()): StubMarket {
+    private fun market(
+        failing: Map<String, Exception> = emptyMap(),
+        reverseSplits: Set<String> = emptySet(),
+    ): StubMarket {
         val fixtures = listOf("ZTG", "SGRX").map { BarFixture.load(it, DAY.toString()) }
         val session = fixtures.associate { it.ticker to it.daily() } + ("QUIET" to DailyBar(5.0, 5.1, 4.95, 5.0, 2_000_000.0))
         val previous = fixtures.associate { it.ticker to DailyBar(0.0, 0.0, 0.0, it.previousClose!!, 0.0) } + ("QUIET" to DailyBar(5.0, 5.0, 5.0, 5.0, 0.0))
@@ -151,6 +172,7 @@ class D1JobTest {
             sessions = mapOf(DAY to session, DAY.minusDays(1) to previous),
             bars = fixtures.associate { it.ticker to it.bars },
             failing = failing,
+            reverseSplits = reverseSplits,
         )
     }
 
@@ -169,8 +191,10 @@ private class StubMarket(
     private val sessions: Map<LocalDate, Map<String, DailyBar>>,
     private val bars: Map<String, List<Bar>> = emptyMap(),
     private val failing: Map<String, Exception> = emptyMap(),
+    private val reverseSplits: Set<String> = emptySet(),
 ) : MarketDataProvider {
     val daysAskedFor = mutableListOf<LocalDate>()
+    val splitsAskedFor = mutableListOf<Pair<LocalDate, LocalDate>>()
     val barsAskedFor = mutableSetOf<String>()
 
     override suspend fun getGroupedDaily(date: LocalDate): Map<String, DailyBar>? {
@@ -196,10 +220,14 @@ private class StubMarket(
 
     override suspend fun getShortInterest(tickers: List<String>) = error("not used by the job")
 
-    override suspend fun getRecentReverseSplits(
+    override suspend fun getReverseSplits(
         tickers: List<String>,
-        since: LocalDate,
-    ) = error("not used by the job")
+        from: LocalDate,
+        to: LocalDate,
+    ): Set<String> {
+        splitsAskedFor += from to to
+        return reverseSplits.intersect(tickers.toSet())
+    }
 
     override suspend fun getInheritedSsr(tickers: List<String>) = error("not used by the job")
 }

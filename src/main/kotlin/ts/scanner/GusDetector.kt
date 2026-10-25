@@ -6,6 +6,19 @@ import java.time.LocalTime
 data class GusRules(
     /** Previous close → PM high, as the TradeZero scanner reads the gap (trade#499). */
     val minGapPercent: Double = 45.0,
+    /**
+     * PM open → PM high : the day's own premarket push. A gap made in the previous evening's
+     * after-hours is not the day's (LUCD 23/10, +9 %) ; the sheet's GUS pushed +22 % at least.
+     */
+    val minPmPushPercent: Double = 20.0,
+    /** Previous close → open : the gap still alive at the bell (AARD 23/10 opened −24 %) ; the sheet's lowest is +22 %. */
+    val minOpenGapPercent: Double = 20.0,
+    /**
+     * PM high → open : a premarket that diluted before the bell left nothing to short at it (XXII
+     * 23/10, −56 % ; YMAT 23/10, −33 %). The sheet's GUS held 0 to −20 % ; LXEH 23/09, −50 %, is a
+     * miss accepted.
+     */
+    val minHoldPercent: Double = -25.0,
     val minOpen: Double = 0.30,
     val maxOpen: Double = 10.0,
     /** The Push is the top of the move after the bell, within this many minutes of it. */
@@ -90,6 +103,9 @@ class GusDetector(
         val open = open ?: return null
         if (open !in rules.minOpen..rules.maxOpen) return null
         if (percentMove(previousClose, pmHigh) < rules.minGapPercent) return null
+        if (percentMove(pmOpen, pmHigh) < rules.minPmPushPercent) return null
+        if (percentMove(previousClose, open) < rules.minOpenGapPercent) return null
+        if (percentMove(pmHigh, open) < rules.minHoldPercent) return null
         val pushed = push?.takeIf { percentMove(open, it.price) >= rules.minPushPercent }
         return Gus(
             previousClose = previousClose,
