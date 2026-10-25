@@ -7,7 +7,8 @@ package ts.scanner
 data class UniverseRules(
     /**
      * Session high over the previous close. A GUS gaps 45 % to its **PM high**, which the daily bar
-     * does not hold, and can fade hard from there : LXEH 23/09, PM high +146 %, opened at +22 %. The
+     * does not hold, and can fade hard from there : LXEH 23/09, PM high +146 %, opened at +22 % — a GUS
+     * the detector keeps (hold −50 %). The
      * sheet's 19 GUS clear 42 % on their typed HOD — the session's high where checked against
      * Massive (GLND, CLRO), not on all 19. 25 % leaves room for a fade that never recovers.
      */

@@ -2,7 +2,11 @@ package ts.scanner
 
 import java.time.LocalTime
 
-/** What makes a session a GUS for the scanner (`trade/docs/pattern/GUS.md`) — the numbers bars can give. */
+/**
+ * What makes a session a GUS for the scanner (`trade/docs/pattern/GUS.md`) — the numbers bars can
+ * give. Loose on purpose : a false positive costs one « Rejeter », whose reason says where to
+ * tighten ; a false negative is a setup the user never learns existed.
+ */
 data class GusRules(
     /** Previous close → PM high, as the TradeZero scanner reads the gap (trade#499). */
     val minGapPercent: Double = 45.0,
@@ -10,15 +14,14 @@ data class GusRules(
      * PM open → PM high : the day's own premarket push. A gap made in the previous evening's
      * after-hours is not the day's (LUCD 23/10, +9 %) ; the sheet's GUS pushed +22 % at least.
      */
-    val minPmPushPercent: Double = 20.0,
+    val minPmPushPercent: Double = 15.0,
     /** Previous close → open : the gap still alive at the bell (AARD 23/10 opened −24 %) ; the sheet's lowest is +22 %. */
-    val minOpenGapPercent: Double = 20.0,
+    val minOpenGapPercent: Double = 15.0,
     /**
      * PM high → open : a premarket that diluted before the bell left nothing to short at it (XXII
-     * 23/10, −56 % ; YMAT 23/10, −33 %). The sheet's GUS held 0 to −20 % ; LXEH 23/09, −50 %, is a
-     * miss accepted.
+     * 23/10, −56 %). The sheet's GUS held 0 to −20 %, and LXEH 23/09 −50 % : it stays in.
      */
-    val minHoldPercent: Double = -25.0,
+    val minHoldPercent: Double = -55.0,
     val minOpen: Double = 0.30,
     val maxOpen: Double = 10.0,
     /** The Push is the top of the move after the bell, within this many minutes of it. */
