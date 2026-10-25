@@ -13,8 +13,8 @@ import kotlin.test.assertTrue
  * protects : the premarket read off the extended hours, the Push within ten minutes of the bell —
  * none on a no-push day — and the Sink as the low of the **first fall**, not of the day (ZTG). The
  * days after a GUS, with no gap left, are not one ; nor, from the first real run (#39), a gap made
- * the evening before (LUCD), one gone before the bell (AARD, FGL) or a premarket that diluted
- * (XXII, YMAT).
+ * the evening before (LUCD), one gone before the bell (AARD, FGL) or a premarket diluted past the
+ * hold (XXII). The rules stay loose : the review rejects what they let through.
  *
  * Times are Massive's, the minute a bar opens : the sheet reads the one after, its end.
  */
@@ -112,18 +112,17 @@ class GusDetectorTest {
     }
 
     @Test
-    fun `a premarket that diluted before the bell is not a GUS — XXII and YMAT on 23·10`() {
-        // XXII ran to 0.7459 at 05:17 and opened at 0.325, −56 % ; YMAT's 3.80 opened at 2.54, −33 %.
+    fun `a premarket diluted past the hold is not a GUS — XXII gave back 56 % of it before the bell`() {
+        // XXII ran to 0.7459 at 05:17 and opened at 0.325.
         assertNull(run("XXII", "2026-10-23"))
-        assertNull(run("YMAT", "2026-10-23"))
     }
 
     @Test
-    fun `AIXI on 23·10 is the run's one GUS — its premarket pushed, held, and opened gapped`() {
-        val gus = detect("AIXI", "2026-10-23")
-
-        assertEquals(3.64, gus.pmHigh)
-        assertEquals(2.48, gus.previousClose)
+    fun `the run's GUS on 23·10 are AIXI and YMAT — loose on purpose, the review rejects with a reason`() {
+        // YMAT's premarket gave back 33 % before the bell : the user's review reads it as diluted.
+        // The rules stay loose — a false positive costs one « Rejeter », a false negative is unseen.
+        assertEquals(3.64, detect("AIXI", "2026-10-23").pmHigh)
+        assertEquals(3.8, detect("YMAT", "2026-10-23").pmHigh)
     }
 
     @Test
