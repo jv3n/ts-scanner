@@ -128,7 +128,7 @@ class D1JobTest {
             val open = mapOf("ZTG" to DailyBar(1.0, 1.0, 1.0, 1.0, 0.0))
             val market = StubMarket(sessions = listOf(3, 4, 8).associate { LocalDate.of(2026, 9, it) to open })
 
-            val days = job(market).tradingDays(LocalDate.of(2026, 9, 3), today = LocalDate.of(2026, 9, 9))
+            val days = job(market).tradingDays(LocalDate.of(2026, 9, 3), to = LocalDate.of(2026, 9, 8))
 
             assertEquals(listOf(3, 4, 8).map { LocalDate.of(2026, 9, it) }, days)
         }
@@ -153,6 +153,16 @@ class D1JobTest {
             val run = trade.runs.single()
             assertEquals("1 of 2 tickers not read — SGRX (Massive answered 500)", run.error)
             assertTrue(run.finishedAt != null)
+        }
+
+    @Test
+    fun `one past day is scanned alone — the same day at both ends`() =
+        runBlocking {
+            val open = mapOf("ZTG" to DailyBar(1.0, 1.0, 1.0, 1.0, 0.0))
+            val market = StubMarket(sessions = listOf(3, 4, 8).associate { LocalDate.of(2026, 9, it) to open })
+            val day = LocalDate.of(2026, 9, 4)
+
+            assertEquals(listOf(day), job(market).tradingDays(day, to = day))
         }
 
     @Test

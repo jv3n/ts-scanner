@@ -24,6 +24,7 @@ cp .env.example .env   # add your Massive API key
 ```bash
 ./gradlew run                              # scan the previous trading day
 ./gradlew run --args="--from 2026-09-25"   # backfill : every trading day since
+./gradlew run --args="--from 2026-10-21 --to 2026-10-21"   # one past day alone (or a range)
 ./gradlew test                             # unit tests
 ./gradlew spotlessCheck build              # what the CI runs
 ./gradlew fetchFixtures -Pcases=ZTG:2026-10-16,…   # real 1-min bars into the test fixtures

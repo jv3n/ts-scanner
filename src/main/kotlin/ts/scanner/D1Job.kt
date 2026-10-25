@@ -42,14 +42,14 @@ class D1Job(
     /** The last trading day before [today] — what a morning run scans. */
     suspend fun previousTradingDay(today: LocalDate): LocalDate = sessionBefore(today).first
 
-    /** Every trading day from [from] up to the one before [today] — the backfill. */
+    /** Every trading day from [from] to [to], both included — one day alone, a range, a backfill. */
     suspend fun tradingDays(
         from: LocalDate,
-        today: LocalDate,
+        to: LocalDate,
     ): List<LocalDate> {
         val days = mutableListOf<LocalDate>()
         var date = from
-        while (date < today) {
+        while (date <= to) {
             if (date.isWeekday && session(date) != null) days += date
             date = date.plusDays(1)
         }

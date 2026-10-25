@@ -9,12 +9,13 @@ import kotlin.system.exitProcess
 private val NEW_YORK: ZoneId = ZoneId.of("America/New_York")
 
 /**
- * `ts-scanner` — the previous trading day, or every trading day since `--from <YYYY-MM-DD>` (the
- * backfill), pushed to `trade` (`TRADE_URL`, `TRADE_API_TOKEN` — jv3n/trade#766). Exits non-zero
+ * `ts-scanner` — the previous trading day, or every trading day from `--from <YYYY-MM-DD>` to
+ * `--to` (both included ; the previous trading day without one), pushed to `trade` (`TRADE_URL`, `TRADE_API_TOKEN` — jv3n/trade#766). Exits non-zero
  * when a day fails, after reporting it to `trade`.
  */
 fun main(args: Array<String>) {
-    val from = parseFrom(args)
+    val today = LocalDate.now(NEW_YORK)
+    val run = RunArgs.parse(args, today)
     val tradeUrl = requireNotNull(envOrNull("TRADE_URL")) { "TRADE_URL is missing — trade's base URL" }
     val token = requireNotNull(envOrNull("TRADE_API_TOKEN")) { "TRADE_API_TOKEN is missing — trade's scanner token" }
     val massive = MassiveProvider.fromEnv()
@@ -24,8 +25,11 @@ fun main(args: Array<String>) {
         runBlocking {
             try {
                 val job = D1Job(PacedMarketData(massive, Pacer()), trade, Clock.systemUTC(), progress = ::println)
-                val today = LocalDate.now(NEW_YORK)
-                val days = if (from == null) listOf(job.previousTradingDay(today)) else job.tradingDays(from, today)
+                val days =
+                    when (run.from) {
+                        null -> listOf(job.previousTradingDay(today))
+                        else -> job.tradingDays(run.from, run.to ?: today.minusDays(1))
+                    }
                 var failures = 0
                 for (day in days) {
                     runCatching { job.scan(day) }
@@ -43,12 +47,6 @@ fun main(args: Array<String>) {
             }
         }
     if (failed) exitProcess(1)
-}
-
-private fun parseFrom(args: Array<String>): LocalDate? {
-    if (args.isEmpty()) return null
-    require(args.size == 2 && args[0] == "--from") { "usage: ts-scanner [--from YYYY-MM-DD]" }
-    return LocalDate.parse(args[1])
 }
 
 private fun summary(scan: DayScan): String {
