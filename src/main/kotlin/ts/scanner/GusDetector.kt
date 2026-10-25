@@ -24,6 +24,8 @@ data class Gus(
     val previousClose: Double,
     val pmOpen: Double,
     val pmHigh: Double,
+    /** Traded before the bell — the sheet's « premarket volume » criterion. */
+    val pmVolume: Long,
     val open: Double,
     /** Null on a no-push day. */
     val push: Point?,
@@ -45,6 +47,7 @@ class GusDetector(
 ) {
     private var pmOpen: Double? = null
     private var pmHigh: Double? = null
+    private var pmVolume = 0L
     private var open: Double? = null
     private var push: Point? = null
     private var sink = SinkTracker(rules.sinkReboundPercent)
@@ -59,6 +62,7 @@ class GusDetector(
             bar.time < MARKET_OPEN -> {
                 if (pmOpen == null) pmOpen = bar.open
                 pmHigh = maxOf(pmHigh ?: bar.high, bar.high)
+                pmVolume += bar.volume
             }
             bar.time < MARKET_CLOSE -> session(bar)
         }
@@ -91,6 +95,7 @@ class GusDetector(
             previousClose = previousClose,
             pmOpen = pmOpen,
             pmHigh = pmHigh,
+            pmVolume = pmVolume,
             open = open,
             push = pushed,
             sink = (if (pushed == null) sinkFromOpen.sink else sink.sink) ?: lod!!,

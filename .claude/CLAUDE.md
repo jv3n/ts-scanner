@@ -5,17 +5,17 @@ Source of truth for the conventions of `ts-scanner`. Read this first.
 ## Project
 
 `ts-scanner` is part of **Ticker Story**, the user's multi-repo trading platform (`ts-` is the
-platform prefix, not TypeScript). It scans the previous session's **Double Tops** (DT) on US
-small-caps ($1–$10) and records them as stats in [`trade`](https://github.com/jv3n/trade), the
-platform's tracker app.
+platform prefix, not TypeScript). It scans the previous session's **GUS** and **double tops** on US
+small-caps ($0.30–$10) and records them as stats to review in [`trade`](https://github.com/jv3n/trade),
+the platform's tracker app.
 
 - **D-1 batch job** — market data comes from **Massive** (formerly Polygon.io) on the **free Basic
   plan** : end-of-day data (published the next day), REST only, **5 requests a minute**, no
   snapshots, no WebSocket. Every call is batched with that quota in mind.
 - **The pattern is defined in `trade`** — `docs/pattern/DT.md` there is the single source (the
   BARES points : Base · Apex · Rejection · Echo · Sink). Never copy a pattern sheet here.
-- **Recorded stats are flagged as automatic** in `trade`, so the user can review them and delete
-  the wrong ones ; a deleted one must not come back on a re-scan.
+- **Recorded stats arrive to review** in `trade` ; the user validates or rejects each one, and a
+  rejected one never comes back on a re-scan (`trade` skips what exists).
 - **No trading** — the repo started as `mtr`, an autonomous short bot (TradeZero). That code is
   gone ; git history holds it. Live alerting (Telegram, while a DT forms) is a later phase that
   needs a paid real-time plan.
@@ -36,11 +36,21 @@ platform's tracker app.
 
 ```
 src/main/kotlin/ts/scanner/
-  Main.kt         # entry point of the job
-  MarketData.kt   # MarketDataProvider port + MassiveProvider (REST)
-  Ssr.kt          # Reg SHO Rule 201, derived from prices
-  Notifier.kt     # run reports — log only, or Telegram when configured
-  Config.kt       # envOrNull : .env first, then the environment
+  Main.kt               # entry point : the previous trading day, or --from <date>
+  D1Job.kt              # one day : universe → bars → detectors → push → run report
+  Universe.kt           # the daily cut down to the tickers worth their bars
+  GusDetector.kt        # OPS off 1-min bars
+  DoubleTopDetector.kt  # BARES off 1-min bars, legs as target ± acceptance bands
+  SinkTracker.kt        # the Sink : the low of the first fall
+  Detection.kt, Bar.kt  # Point, Band, Bar — the shared vocabulary
+  ScannedStats.kt       # a detection in trade's shape (chart minute, four decimals)
+  Trade.kt              # TradeClient port + HttpTradeClient (trade's /api/scanner/**)
+  MarketData.kt         # MarketDataProvider port + MassiveProvider (REST)
+  Pacer.kt              # 5 requests a minute, the free plan's quota
+  Ssr.kt                # Reg SHO Rule 201, derived from prices
+  Notifier.kt           # run reports — log only, or Telegram when configured
+  Config.kt             # envOrNull : .env first, then the environment
+src/test/resources/bars/  # real days of 1-min bars, the detectors' fixtures
 ```
 
 Pure functions for every rule (no I/O), the I/O wired around them — the rules are tested without
