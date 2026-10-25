@@ -49,3 +49,14 @@ application {
 tasks.test {
     useJUnitPlatform()
 }
+
+// Real 1-min bars into the test fixtures (#34) : `-Pcases=TICKER:YYYY-MM-DD,…`, Massive's key from
+// `.env`, paced to the free plan's 5 requests a minute.
+tasks.register<JavaExec>("fetchFixtures") {
+    group = "verification"
+    description = "Writes real 1-min bars into src/test/resources/bars/"
+    classpath = sourceSets["test"].runtimeClasspath
+    mainClass.set("ts.scanner.fixtures.FetchFixturesKt")
+    workingDir = projectDir
+    args = (project.findProperty("cases") as String?)?.split(",").orEmpty()
+}

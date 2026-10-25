@@ -17,6 +17,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
+import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 
@@ -79,6 +80,18 @@ interface MarketDataProvider {
      * Derived from the rule, see [ssrTriggered].
      */
     suspend fun getInheritedSsr(tickers: List<String>): Set<String>
+
+    /** [ticker]'s 1-min bars on [date], extended hours included, unadjusted — empty on a day it did not trade. */
+    suspend fun getMinuteBars(
+        ticker: String,
+        date: LocalDate,
+    ): List<Bar>
+
+    /** The close of the last session before [date], unadjusted — null when none is found in the week before. */
+    suspend fun getPreviousClose(
+        ticker: String,
+        date: LocalDate,
+    ): Double?
 }
 
 /**
@@ -166,6 +179,52 @@ class MassiveProvider(
                 ssrTriggered(low, reference)
             }.toSet()
     }
+
+    /**
+     * One request for the whole day : a session of extended hours is ~960 minutes, well under the
+     * 50 000 bars of a page. Unadjusted, as the stats record the prices that printed.
+     */
+    override suspend fun getMinuteBars(
+        ticker: String,
+        date: LocalDate,
+    ): List<Bar> =
+        client
+            .get("$MASSIVE_REST_BASE/v2/aggs/ticker/${ticker.uppercase()}/range/1/minute/$date/$date") {
+                parameter("adjusted", "false")
+                parameter("sort", "asc")
+                parameter("limit", 50000)
+            }.body<JsonObject>()["results"]
+            ?.jsonArray
+            .orEmpty()
+            .mapNotNull { el ->
+                val o = el.jsonObject
+                val start = o["t"]?.jsonPrimitive?.longOrNull ?: return@mapNotNull null
+                Bar(
+                    time = Instant.ofEpochMilli(start).atZone(NEW_YORK).toLocalTime(),
+                    open = o["o"]?.jsonPrimitive?.doubleOrNull ?: return@mapNotNull null,
+                    high = o["h"]?.jsonPrimitive?.doubleOrNull ?: return@mapNotNull null,
+                    low = o["l"]?.jsonPrimitive?.doubleOrNull ?: return@mapNotNull null,
+                    close = o["c"]?.jsonPrimitive?.doubleOrNull ?: return@mapNotNull null,
+                    volume = o["v"]?.jsonPrimitive?.doubleOrNull?.toLong() ?: 0L,
+                )
+            }
+
+    override suspend fun getPreviousClose(
+        ticker: String,
+        date: LocalDate,
+    ): Double? =
+        client
+            .get("$MASSIVE_REST_BASE/v2/aggs/ticker/${ticker.uppercase()}/range/1/day/${date.minusDays(7)}/${date.minusDays(1)}") {
+                parameter("adjusted", "false")
+                parameter("sort", "desc")
+                parameter("limit", 1)
+            }.body<JsonObject>()["results"]
+            ?.jsonArray
+            ?.firstOrNull()
+            ?.jsonObject
+            ?.get("c")
+            ?.jsonPrimitive
+            ?.doubleOrNull
 
     /** Null when [date] was not a trading day (no results published). */
     private suspend fun groupedDaily(
