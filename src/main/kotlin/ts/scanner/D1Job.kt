@@ -3,6 +3,7 @@ package ts.scanner
 import kotlinx.coroutines.CancellationException
 import java.time.Clock
 import java.time.DayOfWeek
+import java.time.Duration
 import java.time.LocalDate
 
 /** What one day's scan found and pushed — and the tickers whose bars could not be read. */
@@ -33,6 +34,8 @@ class D1Job(
     private val universeRules: UniverseRules = UniverseRules(),
     private val gusRules: GusRules = GusRules(),
     private val doubleTopRules: DoubleTopRules = DoubleTopRules(),
+    /** Where the progress goes, line by line — a day is a quarter of an hour of reading (#42). */
+    private val progress: (String) -> Unit = {},
 ) {
     private val sessions = mutableMapOf<LocalDate, Map<String, DailyBar>?>()
 
@@ -67,16 +70,21 @@ class D1Job(
             // gap of thousands of percent (PASW 23/10, +4 415 %) — the sheet's criterion 8.
             val split = if (cut.isEmpty()) emptySet() else market.getReverseSplits(cut.map { it.ticker }, previousDay.plusDays(1), day)
             val candidates = cut.filterNot { it.ticker in split }
+            val splitNote = if (split.isEmpty()) "" else " ; left out for a reverse split : ${split.sorted().joinToString()}"
+            progress("$day — ${candidates.size} tickers to read, ~${minutesFor(candidates.size)} min$splitNote")
             val stats = mutableListOf<ScannedStat>()
             val missed = mutableListOf<String>()
-            for (candidate in candidates) {
+            for ((index, candidate) in candidates.withIndex()) {
+                val step = "[${index + 1}/${candidates.size}] ${candidate.ticker}"
                 val bars =
                     try {
                         market.getMinuteBars(candidate.ticker, day)
                     } catch (cancelled: CancellationException) {
                         throw cancelled
                     } catch (failure: Exception) {
-                        missed += "${candidate.ticker} (${failure.message ?: failure::class.simpleName})"
+                        val reason = failure.message ?: failure::class.simpleName
+                        missed += "${candidate.ticker} ($reason)"
+                        progress("$step — not read ($reason)")
                         continue
                     }
                 scanned++
@@ -86,19 +94,25 @@ class D1Job(
                     gusDetector.feed(it)
                     topDetector.feed(it)
                 }
+                val found = mutableListOf<String>()
                 gusDetector.result()?.let {
                     stats += it.toScannedStat(candidate.ticker)
                     gus++
+                    found += "GUS"
                 }
                 topDetector.result()?.let {
                     stats += it.toScannedStat(candidate.ticker, candidate.dayVolume)
                     dt++
+                    found += "DT"
                 }
+                progress("$step — ${found.joinToString().ifEmpty { "nothing" }}")
             }
             if (candidates.isNotEmpty() && scanned == 0) error("no ticker read — ${missed.joinToString()}")
             val result = trade.pushStats(ScannedStatsRequest(day.toString(), stats))
             val partial = missed.takeIf { it.isNotEmpty() }?.let { "${it.size} of ${candidates.size} tickers not read — ${it.joinToString()}" }
             trade.reportRun(ScannerRunReport(day.toString(), "$startedAt", "${clock.instant()}", scanned, gus, dt, partial?.take(ERROR_MAX)))
+            val took = Duration.between(startedAt, clock.instant()).toMinutes()
+            progress("$day — done in $took min : $gus GUS, $dt DT, ${result.created.size} created, ${result.skipped.size} skipped")
             return DayScan(day, scanned, gus, dt, result, missed)
         } catch (failure: Exception) {
             val reason = failure.message ?: failure::class.simpleName.orEmpty()
@@ -118,6 +132,9 @@ class D1Job(
         }
         error("no trading session in the $MAX_PROBES days before $day")
     }
+
+    /** One request a ticker, at the free plan's five a minute. */
+    private fun minutesFor(tickers: Int) = (tickers + 4) / 5
 
     private suspend fun session(date: LocalDate): Map<String, DailyBar>? = sessions.getOrPut(date) { market.getGroupedDaily(date) }
 

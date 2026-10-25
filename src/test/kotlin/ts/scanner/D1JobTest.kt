@@ -60,6 +60,21 @@ class D1JobTest {
         }
 
     @Test
+    fun `the run says how many tickers it will read, then each one and what it found`() =
+        runBlocking {
+            val lines = mutableListOf<String>()
+            val market = market(failing = mapOf("SGRX" to IOException("Massive answered 500")))
+
+            D1Job(market, RecordingTrade(), CLOCK, progress = { lines += it }).scan(DAY)
+
+            assertEquals("2026-10-16 — 2 tickers to read, ~1 min", lines.first())
+            assertTrue(lines.any { it.endsWith("ZTG — GUS, DT") }, "$lines")
+            assertTrue(lines.any { it.endsWith("SGRX — not read (Massive answered 500)") }, "$lines")
+            assertTrue(lines.drop(1).dropLast(1).all { it.startsWith("[") }, "$lines")
+            assertEquals("2026-10-16 — done in 0 min : 1 GUS, 1 DT, 2 created, 0 skipped", lines.last())
+        }
+
+    @Test
     fun `a ticker out of the universe is never fetched`() =
         runBlocking {
             val market = market()
@@ -158,7 +173,7 @@ class D1JobTest {
     private fun job(
         market: MarketDataProvider,
         trade: TradeClient = RecordingTrade(),
-    ) = D1Job(market, trade, Clock.fixed(Instant.parse("2026-10-19T10:10:00Z"), ZoneOffset.UTC))
+    ) = D1Job(market, trade, CLOCK)
 
     /** 16/10 from the fixtures, a quiet ticker beside them, and the closes of 15/10 they gapped from. */
     private fun market(
@@ -183,6 +198,7 @@ class D1JobTest {
 
     private companion object {
         val DAY: LocalDate = LocalDate.of(2026, 10, 16)
+        val CLOCK: Clock = Clock.fixed(Instant.parse("2026-10-19T10:10:00Z"), ZoneOffset.UTC)
     }
 }
 
