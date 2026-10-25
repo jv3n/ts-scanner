@@ -48,10 +48,11 @@ class PacedMarketData(
 
     override suspend fun getShortInterest(tickers: List<String>) = pacer.paced { delegate.getShortInterest(tickers) }
 
-    override suspend fun getRecentReverseSplits(
+    override suspend fun getReverseSplits(
         tickers: List<String>,
-        since: LocalDate,
-    ) = pacer.paced { delegate.getRecentReverseSplits(tickers, since) }
+        from: LocalDate,
+        to: LocalDate,
+    ) = pacer.paced { delegate.getReverseSplits(tickers, from, to) }
 
     // Several requests behind one call (it walks back through the sessions) : paced as one, so the
     // job does not call it.

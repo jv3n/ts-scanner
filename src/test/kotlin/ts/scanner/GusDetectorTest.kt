@@ -12,7 +12,9 @@ import kotlin.test.assertTrue
  * The GUS detector on real days of 1-min bars, the GUS of the user's stats sheet (#34). What it
  * protects : the premarket read off the extended hours, the Push within ten minutes of the bell —
  * none on a no-push day — and the Sink as the low of the **first fall**, not of the day (ZTG). The
- * days after a GUS, with no gap left, are not one.
+ * days after a GUS, with no gap left, are not one ; nor, from the first real run (#39), a gap made
+ * the evening before (LUCD), one gone before the bell (AARD, FGL) or a premarket that diluted
+ * (XXII, YMAT).
  *
  * Times are Massive's, the minute a bar opens : the sheet reads the one after, its end.
  */
@@ -92,6 +94,36 @@ class GusDetectorTest {
         for ((ticker, date) in listOf("STAK" to "2026-10-23", "YMAT" to "2026-10-20", "ZTG" to "2026-10-19")) {
             assertNull(run(ticker, date), "$ticker on $date read as a GUS")
         }
+    }
+
+    // ---- The first real run, 23/10 (#39) : what the review said was not a GUS ----
+
+    @Test
+    fun `a gap made the evening before is not the day's — LUCD, whose premarket pushed nine percent`() {
+        // LUCD ran 0.32 → 0.58 in the after-hours of 22/10 ; on 23/10 it opened its premarket at
+        // 0.44 and went flat : +46 % over the close, none of it the day's.
+        assertNull(run("LUCD", "2026-10-23"))
+    }
+
+    @Test
+    fun `a gap gone before the bell is not a GUS — AARD and FGL opened under their close`() {
+        assertNull(run("AARD", "2026-10-23"))
+        assertNull(run("FGL", "2026-10-23"))
+    }
+
+    @Test
+    fun `a premarket that diluted before the bell is not a GUS — XXII and YMAT on 23·10`() {
+        // XXII ran to 0.7459 at 05:17 and opened at 0.325, −56 % ; YMAT's 3.80 opened at 2.54, −33 %.
+        assertNull(run("XXII", "2026-10-23"))
+        assertNull(run("YMAT", "2026-10-23"))
+    }
+
+    @Test
+    fun `AIXI on 23·10 is the run's one GUS — its premarket pushed, held, and opened gapped`() {
+        val gus = detect("AIXI", "2026-10-23")
+
+        assertEquals(3.64, gus.pmHigh)
+        assertEquals(2.48, gus.previousClose)
     }
 
     @Test

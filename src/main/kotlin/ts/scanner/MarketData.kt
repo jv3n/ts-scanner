@@ -73,11 +73,13 @@ interface MarketDataProvider {
     suspend fun getShortInterest(tickers: List<String>): Map<String, ShortInterest>
 
     /**
-     * Tickers among [tickers] that ran a reverse split on or after [since]. Returns only the offenders, so an empty set means "none of them did".
+     * Tickers among [tickers] that ran a reverse split executed from [from] to [to], both included.
+     * Returns only the offenders, so an empty set means "none of them did".
      */
-    suspend fun getRecentReverseSplits(
+    suspend fun getReverseSplits(
         tickers: List<String>,
-        since: LocalDate,
+        from: LocalDate,
+        to: LocalDate,
     ): Set<String>
 
     /**
@@ -269,23 +271,25 @@ class MassiveProvider(
     }
 
     /**
-     * One batched request (`ticker.any_of` + `execution_date.gte`) for the whole universe —
+     * One batched request (`ticker.any_of` + `execution_date` bounds) for the whole universe —
      * the Basic plan allows only 5 requests/minute.
      *
      * A reverse split is `split_to < split_from` (a 1-for-10 comes back as from=10, to=1).
      * That ratio IS the definition, so it decides; `adjustment_type` is only the fallback
      * for a row that omits the ratio.
      */
-    override suspend fun getRecentReverseSplits(
+    override suspend fun getReverseSplits(
         tickers: List<String>,
-        since: LocalDate,
+        from: LocalDate,
+        to: LocalDate,
     ): Set<String> {
         if (tickers.isEmpty()) return emptySet()
         val results =
             client
                 .get("$MASSIVE_REST_BASE/stocks/v1/splits") {
                     parameter("ticker.any_of", tickers.joinToString(",") { it.uppercase() })
-                    parameter("execution_date.gte", since.toString())
+                    parameter("execution_date.gte", from.toString())
+                    parameter("execution_date.lte", to.toString())
                     parameter("limit", 1000)
                 }.body<JsonObject>()["results"]
                 ?.jsonArray
