@@ -49,10 +49,30 @@ data class ScannedStat(
     val dtDropTime: String? = null,
 )
 
+/** A day's stats, with the 1-min bars of their tickers for their charts (trade#784). */
 @Serializable
 data class ScannedStatsRequest(
     val tradingDate: String,
     val stats: List<ScannedStat>,
+    val bars: List<TickerBars> = emptyList(),
+)
+
+/** One ticker's day of 1-min bars, as `trade` stores them. */
+@Serializable
+data class TickerBars(
+    val ticker: String,
+    val bars: List<PushedBar>,
+)
+
+/** A 1-min bar on the wire — [time] the instant its minute opens. */
+@Serializable
+data class PushedBar(
+    val time: String,
+    val open: Double,
+    val high: Double,
+    val low: Double,
+    val close: Double,
+    val volume: Long,
 )
 
 /** What `trade` did with a push : a stat that exists — typed, to review, rejected — is skipped. */

@@ -23,9 +23,9 @@ data class DoubleTopRules(
     val maxRejectionMinutes: Long = 30,
     val maxEchoMinutes: Long = 60,
     /**
-     * A swing low or high is confirmed once the price turns this much off it — on price alone, from
-     * 04:00 : a premarket double top is real. Thin-print noise is left to the review (« bruit ») ; a
-     * volume floor on the swings is the knob if it shows.
+     * A swing low or high is confirmed once the price turns this much off it — on price alone, over
+     * the session only (no double top is taken in the extended hours). Thin-print noise is left to
+     * the review (« bruit ») ; a volume floor on the swings is the knob if it shows.
      */
     val pivotPercent: Double = 5.0,
     /** The first fall after the Echo is over once the price bounces this much off its low. */
