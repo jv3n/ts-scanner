@@ -14,7 +14,7 @@ import kotlin.test.assertTrue
  * - each ticker-day `trade` lists is fetched and pushed with its bars ;
  * - an empty answer is a day Massive has nothing for : marked not found, so `trade` stops listing it ;
  * - a failed request marks **nothing** — a 429 or a timeout is no « none served », and the next run
- *   tries again — and the rest of the list still goes ;
+ *   tries again — and the rest of the list still goes ; so does it past a day `trade` refuses ;
  * - `trade` is asked for the run's limit, and an empty list costs no request to Massive.
  */
 class MissingBarsPassTest {
@@ -53,6 +53,24 @@ class MissingBarsPassTest {
             assertTrue(trade.notFound.isEmpty())
             assertEquals(listOf("ZTG"), trade.pushed.map { it.ticker })
             assertEquals(listOf(Missed("SGRX", "Massive answered 429")), result.failed)
+        }
+
+    @Test
+    fun `a day trade refuses is named, and the days after it are still pushed`() =
+        runBlocking {
+            val trade = FakeTrade(listOf(DELISTED, ZTG), refusing = setOf("GONE"))
+
+            val result = MissingBarsPass(market(), trade).run()
+
+            assertEquals(listOf("ZTG"), trade.pushed.map { it.ticker })
+            assertEquals(listOf("GONE"), result.failed.map { it.ticker })
+            assertTrue(
+                result.failed
+                    .single()
+                    .reason
+                    .startsWith("refused by trade"),
+                result.failed.single().reason,
+            )
         }
 
     @Test
@@ -119,6 +137,7 @@ private class BarsOnly(
 /** `trade`, listing [missing] and recording what it is sent. */
 private class FakeTrade(
     private val missing: List<DayTicker>,
+    private val refusing: Set<String> = emptySet(),
 ) : TradeClient {
     val limitsAsked = mutableListOf<Int>()
     val pushed = mutableListOf<DayBarsPush>()
@@ -130,10 +149,12 @@ private class FakeTrade(
     }
 
     override suspend fun pushBars(push: DayBarsPush) {
+        if (push.ticker in refusing) throw IllegalStateException("trade answered 400")
         pushed += push
     }
 
     override suspend fun markBarsNotFound(day: DayTicker) {
+        if (day.ticker in refusing) throw IllegalStateException("trade answered 400")
         notFound += day
     }
 

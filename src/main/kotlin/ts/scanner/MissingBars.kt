@@ -17,7 +17,8 @@ data class MissingBarsResult(
  * few mornings instead of holding one for an hour.
  *
  * An empty answer is a day Massive has nothing for — marked, never asked again ; a failed request
- * marks nothing, so the next run tries it again.
+ * marks nothing, so the next run tries it again. A day `trade` refuses is named and skipped : the
+ * rest of the list still goes.
  */
 class MissingBarsPass(
     private val market: MarketDataProvider,
@@ -46,14 +47,23 @@ class MissingBarsPass(
                     continue
                 }
             val chart = bars.forChart(day.ticker, LocalDate.parse(day.tradingDate))
-            if (chart.bars.isEmpty()) {
-                trade.markBarsNotFound(day)
-                notFound++
-                progress("$step — none served")
-            } else {
-                trade.pushBars(DayBarsPush(day.tradingDate, day.ticker, chart.bars))
-                filled++
-                progress("$step — ${chart.bars.size} bars")
+            try {
+                if (chart.bars.isEmpty()) {
+                    trade.markBarsNotFound(day)
+                    notFound++
+                    progress("$step — none served")
+                } else {
+                    trade.pushBars(DayBarsPush(day.tradingDate, day.ticker, chart.bars))
+                    filled++
+                    progress("$step — ${chart.bars.size} bars")
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (refused: Exception) {
+                // One day `trade` will not take costs that day, not the rest of the list.
+                val reason = "refused by trade : ${refused.message ?: refused::class.simpleName.orEmpty()}"
+                failed += Missed(day.ticker, reason)
+                progress("$step — $reason")
             }
         }
         return MissingBarsResult(filled, notFound, failed)
