@@ -5,7 +5,9 @@ import io.ktor.client.call.body
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.defaultRequest
+import io.ktor.client.request.get
 import io.ktor.client.request.header
+import io.ktor.client.request.parameter
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.http.ContentType
@@ -112,11 +114,34 @@ data class ScannerRunReport(
     val missedTickers: List<String> = emptyList(),
 )
 
+/** A ticker-day of `trade`'s stats still without bars (trade#798). */
+@Serializable
+data class DayTicker(
+    val tradingDate: String,
+    val ticker: String,
+)
+
+/** `POST /api/scanner/bars` — a missing ticker-day's bars, fetched. */
+@Serializable
+data class DayBarsPush(
+    val tradingDate: String,
+    val ticker: String,
+    val bars: List<PushedBar>,
+)
+
 /** Port — where the scanner pushes what it found : `trade`'s scanner endpoints. */
 interface TradeClient {
     suspend fun pushStats(request: ScannedStatsRequest): ScannedStatsResult
 
     suspend fun reportRun(report: ScannerRunReport)
+
+    /** The owner's ticker-days still without bars, newest first, at most [limit]. */
+    suspend fun missingBars(limit: Int): List<DayTicker>
+
+    suspend fun pushBars(push: DayBarsPush)
+
+    /** Massive served nothing for the ticker-day : `trade` won't list it again. */
+    suspend fun markBarsNotFound(day: DayTicker)
 
     fun close() {}
 }
@@ -147,6 +172,26 @@ class HttpTradeClient(
         client.post("${baseUrl.trimEnd('/')}/api/scanner/runs") {
             contentType(ContentType.Application.Json)
             setBody(report)
+        }
+    }
+
+    override suspend fun missingBars(limit: Int): List<DayTicker> =
+        client
+            .get("${baseUrl.trimEnd('/')}/api/scanner/bars/missing") {
+                parameter("limit", limit)
+            }.body()
+
+    override suspend fun pushBars(push: DayBarsPush) {
+        client.post("${baseUrl.trimEnd('/')}/api/scanner/bars") {
+            contentType(ContentType.Application.Json)
+            setBody(push)
+        }
+    }
+
+    override suspend fun markBarsNotFound(day: DayTicker) {
+        client.post("${baseUrl.trimEnd('/')}/api/scanner/bars/not-found") {
+            contentType(ContentType.Application.Json)
+            setBody(day)
         }
     }
 

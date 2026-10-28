@@ -34,5 +34,10 @@ It pushes to `trade` at `TRADE_URL` with the bearer `TRADE_API_TOKEN`. Day to da
 runs it and sets both (resource `ts-scanner 📡`, jv3n/trade#766) ; run by hand, put them in `.env`.
 Each run is reported to `trade` — a failed one too — and exits non-zero when a day failed.
 
+Each stat goes over with its day of 1-min bars, for its chart in `trade` (jv3n/trade#784). After the
+scan, a run also fetches the bars of the stats still without them — typed by hand, or older than the
+charts — at most 20 ticker-days a run (~4 min), newest first ; a day Massive has nothing for is
+marked and never asked again. That pass fails no run : what it could not read is tried the next one.
+
 Docker : `docker compose run --rm ts-scanner` (image `ghcr.io/jv3n/ts-scanner`, built on every
 push to `master`).

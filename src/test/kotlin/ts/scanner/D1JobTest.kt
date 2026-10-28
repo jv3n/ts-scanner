@@ -310,4 +310,10 @@ private class RecordingTrade : TradeClient {
     override suspend fun reportRun(report: ScannerRunReport) {
         runs += report
     }
+
+    override suspend fun missingBars(limit: Int) = emptyList<DayTicker>()
+
+    override suspend fun pushBars(push: DayBarsPush) = error("not used by the job")
+
+    override suspend fun markBarsNotFound(day: DayTicker) = error("not used by the job")
 }

@@ -21,10 +21,12 @@ fun main(args: Array<String>) {
     val massive = MassiveProvider.fromEnv()
     val trade = HttpTradeClient(tradeUrl, token)
     val notifier = notifierFromEnv()
+    // One pacer for the scan and the missing bars : the quota is Massive's, whoever asks.
+    val pacer = Pacer()
     val failed =
         runBlocking {
             try {
-                val job = D1Job(PacedMarketData(massive, Pacer()), trade, Clock.systemUTC(), progress = ::println)
+                val job = D1Job(PacedMarketData(massive, pacer), trade, Clock.systemUTC(), progress = ::println)
                 val days =
                     when (run.from) {
                         null -> listOf(job.previousTradingDay(today))
@@ -39,6 +41,11 @@ fun main(args: Array<String>) {
                             notifier.send("ts-scanner: $day failed — ${it.message}")
                         }
                 }
+                // The charts of the stats without bars (trade#784) : a failure here costs no stat, and
+                // fails no run — the next one tries again.
+                runCatching { MissingBarsPass(PacedMarketData(massive, pacer), trade, progress = ::println).run() }
+                    .onSuccess { if (it.filled + it.notFound + it.failed.size > 0) notifier.send(summary(it)) }
+                    .onFailure { notifier.send("ts-scanner: missing bars failed — ${it.message}") }
                 failures > 0
             } finally {
                 notifier.close()
@@ -47,6 +54,11 @@ fun main(args: Array<String>) {
             }
         }
     if (failed) exitProcess(1)
+}
+
+private fun summary(pass: MissingBarsResult): String {
+    val failed = if (pass.failed.isEmpty()) "" else " ; not read : ${pass.failed.joinToString()}"
+    return "ts-scanner: missing bars — ${pass.filled} filled, ${pass.notFound} none served$failed"
 }
 
 private fun summary(scan: DayScan): String {
