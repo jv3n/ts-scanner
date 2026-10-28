@@ -134,7 +134,7 @@ class D1JobTest {
         }
 
     @Test
-    fun `a ticker whose bars fail is named in the report, the rest of the day is still pushed`() =
+    fun `a ticker whose bars fail is reported as missed, not as an error — the rest of the day is still pushed`() =
         runBlocking {
             val trade = RecordingTrade()
             val market = market(failing = mapOf("ZTG" to IOException("Massive answered 500")))
@@ -149,9 +149,11 @@ class D1JobTest {
                     .map { "${it.ticker} ${it.pattern}" }
                     .toSet(),
             )
-            assertEquals(listOf("ZTG (Massive answered 500)"), scan.missed)
+            assertEquals(listOf(Missed("ZTG", "Massive answered 500")), scan.missed)
             val run = trade.runs.single()
-            assertEquals("1 of 2 tickers not read — ZTG (Massive answered 500)", run.error)
+            // A partial run is not a failed one : Today reads `error` as amber.
+            assertNull(run.error)
+            assertEquals(listOf("ZTG"), run.missedTickers)
             assertTrue(run.finishedAt != null)
         }
 

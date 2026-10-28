@@ -76,7 +76,10 @@ data class ScannedStatSkipped(
     val detail: String? = null,
 )
 
-/** `POST /api/scanner/runs` — every run, a failed one included, so Today can say it. */
+/**
+ * `POST /api/scanner/runs` — every run, a failed one included, so Today can say it ; [error] only
+ * when the day failed, [missedTickers] the tickers a run that went on could not read.
+ */
 @Serializable
 data class ScannerRunReport(
     val tradingDate: String,
@@ -86,6 +89,7 @@ data class ScannerRunReport(
     val gusFound: Int,
     val dtFound: Int,
     val error: String? = null,
+    val missedTickers: List<String> = emptyList(),
 )
 
 /** Port — where the scanner pushes what it found : `trade`'s scanner endpoints. */
