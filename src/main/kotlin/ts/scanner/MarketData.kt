@@ -20,6 +20,7 @@ import kotlinx.serialization.json.longOrNull
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
+import java.time.temporal.ChronoUnit
 
 /** Static/reference data for one ticker. */
 data class TickerReference(
@@ -212,7 +213,14 @@ class MassiveProvider(
                 val o = el.jsonObject
                 val start = o["t"]?.jsonPrimitive?.longOrNull ?: return@mapNotNull null
                 Bar(
-                    time = Instant.ofEpochMilli(start).atZone(NEW_YORK).toLocalTime(),
+                    // On the minute : `trade` refuses a bar off it (and the push with it), and a leg's
+                    // length in minutes would lose one to a stray second.
+                    time =
+                        Instant
+                            .ofEpochMilli(start)
+                            .atZone(NEW_YORK)
+                            .toLocalTime()
+                            .truncatedTo(ChronoUnit.MINUTES),
                     open = o["o"]?.jsonPrimitive?.doubleOrNull ?: return@mapNotNull null,
                     high = o["h"]?.jsonPrimitive?.doubleOrNull ?: return@mapNotNull null,
                     low = o["l"]?.jsonPrimitive?.doubleOrNull ?: return@mapNotNull null,

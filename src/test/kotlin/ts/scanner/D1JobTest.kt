@@ -6,6 +6,7 @@ import java.io.IOException
 import java.time.Clock
 import java.time.Instant
 import java.time.LocalDate
+import java.time.LocalTime
 import java.time.ZoneOffset
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -40,6 +41,42 @@ class D1JobTest {
             assertEquals(Triple(2, 2, 1), Triple(run.tickersScanned, run.gusFound, run.dtFound))
             assertNull(run.error)
         }
+
+    @Test
+    fun `each ticker a stat was found on goes over with its day of bars, the quiet one without`() =
+        runBlocking {
+            val trade = RecordingTrade()
+
+            job(market(), trade).scan(DAY)
+
+            val bars =
+                trade.pushed
+                    .single()
+                    .bars
+                    .associateBy { it.ticker }
+            assertEquals(setOf("ZTG", "SGRX"), bars.keys)
+            val ztg = bars.getValue("ZTG").bars
+            // The extended day only, as instants : 04:00 New York is 08:00Z in October.
+            assertTrue(ztg.all { it.time >= "2026-10-16T08:00:00Z" && it.time < "2026-10-17T00:00:00Z" }, "${ztg.first()}")
+            assertEquals(ztg.sortedBy { it.time }, ztg)
+            assertTrue(ztg.size > 300, "${ztg.size} bars")
+        }
+
+    @Test
+    fun `a bar out of the extended day, or with its close outside its range, stays out of the chart`() {
+        val day = LocalDate.of(2026, 10, 16)
+        val bars =
+            listOf(
+                Bar(LocalTime.of(3, 59), 1.0, 1.0, 1.0, 1.0, 10),
+                Bar(LocalTime.of(9, 30), 1.1, 1.14, 1.02, 1.04, 182_340),
+                Bar(LocalTime.of(9, 31), 1.04, 1.1, 1.03, 1.2, 96_015),
+                Bar(LocalTime.of(20, 0), 1.0, 1.0, 1.0, 1.0, 10),
+            )
+
+        val chart = bars.forChart("ZTG", day)
+
+        assertEquals(listOf("2026-10-16T13:30:00Z"), chart.bars.map { it.time })
+    }
 
     @Test
     fun `ZTG's GUS goes over as the sheet reads it — push at 09·40, the first fall's 0·75`() =

@@ -81,6 +81,7 @@ class D1Job(
             val splitNote = if (split.isEmpty()) "" else " ; left out for a reverse split : ${split.sorted().joinToString()}"
             progress("$day — ${candidates.size} tickers to read, ~${minutesFor(candidates.size)} min$splitNote")
             val stats = mutableListOf<ScannedStat>()
+            val chartBars = mutableListOf<TickerBars>()
             val missed = mutableListOf<Missed>()
             for ((index, candidate) in candidates.withIndex()) {
                 val step = "[${index + 1}/${candidates.size}] ${candidate.ticker}"
@@ -113,10 +114,11 @@ class D1Job(
                     dt++
                     found += "DT"
                 }
+                if (found.isNotEmpty()) chartBars += bars.forChart(candidate.ticker, day)
                 progress("$step — ${found.joinToString().ifEmpty { "nothing" }}")
             }
             if (candidates.isNotEmpty() && scanned == 0) error("no ticker read — ${missed.joinToString()}")
-            val result = trade.pushStats(ScannedStatsRequest(day.toString(), stats))
+            val result = trade.pushStats(ScannedStatsRequest(day.toString(), stats, chartBars))
             trade.reportRun(ScannerRunReport(day.toString(), "$startedAt", "${clock.instant()}", scanned, gus, dt, missedTickers = missed.map { it.ticker }))
             val took = Duration.between(startedAt, clock.instant()).toMinutes()
             progress("$day — done in $took min : $gus GUS, $dt DT, ${result.created.size} created, ${result.skipped.size} skipped")
