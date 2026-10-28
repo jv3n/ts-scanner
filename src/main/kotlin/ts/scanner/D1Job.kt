@@ -13,8 +13,16 @@ data class DayScan(
     val gusFound: Int,
     val dtFound: Int,
     val result: ScannedStatsResult,
-    val missed: List<String> = emptyList(),
+    val missed: List<Missed> = emptyList(),
 )
+
+/** A ticker whose bars could not be read, and why — the why stays in the log, `trade` gets the ticker. */
+data class Missed(
+    val ticker: String,
+    val reason: String,
+) {
+    override fun toString() = "$ticker ($reason)"
+}
 
 /**
  * The D-1 job (#35) : for a trading day, cut the market down to its gappers and wide ranges, read
@@ -73,7 +81,7 @@ class D1Job(
             val splitNote = if (split.isEmpty()) "" else " ; left out for a reverse split : ${split.sorted().joinToString()}"
             progress("$day — ${candidates.size} tickers to read, ~${minutesFor(candidates.size)} min$splitNote")
             val stats = mutableListOf<ScannedStat>()
-            val missed = mutableListOf<String>()
+            val missed = mutableListOf<Missed>()
             for ((index, candidate) in candidates.withIndex()) {
                 val step = "[${index + 1}/${candidates.size}] ${candidate.ticker}"
                 val bars =
@@ -82,8 +90,8 @@ class D1Job(
                     } catch (cancelled: CancellationException) {
                         throw cancelled
                     } catch (failure: Exception) {
-                        val reason = failure.message ?: failure::class.simpleName
-                        missed += "${candidate.ticker} ($reason)"
+                        val reason = failure.message ?: failure::class.simpleName.orEmpty()
+                        missed += Missed(candidate.ticker, reason)
                         progress("$step — not read ($reason)")
                         continue
                     }
@@ -109,8 +117,7 @@ class D1Job(
             }
             if (candidates.isNotEmpty() && scanned == 0) error("no ticker read — ${missed.joinToString()}")
             val result = trade.pushStats(ScannedStatsRequest(day.toString(), stats))
-            val partial = missed.takeIf { it.isNotEmpty() }?.let { "${it.size} of ${candidates.size} tickers not read — ${it.joinToString()}" }
-            trade.reportRun(ScannerRunReport(day.toString(), "$startedAt", "${clock.instant()}", scanned, gus, dt, partial?.take(ERROR_MAX)))
+            trade.reportRun(ScannerRunReport(day.toString(), "$startedAt", "${clock.instant()}", scanned, gus, dt, missedTickers = missed.map { it.ticker }))
             val took = Duration.between(startedAt, clock.instant()).toMinutes()
             progress("$day — done in $took min : $gus GUS, $dt DT, ${result.created.size} created, ${result.skipped.size} skipped")
             return DayScan(day, scanned, gus, dt, result, missed)
