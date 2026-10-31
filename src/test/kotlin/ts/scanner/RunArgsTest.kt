@@ -2,12 +2,16 @@ package ts.scanner
 
 import java.time.LocalDate
 import kotlin.test.Test
+import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 
 /**
  * What a run scans, read off its arguments (#44) — refused before any request when it cannot be
- * right : a quarter of an hour of reading per day is spent before a bad range would show.
+ * right : a quarter of an hour of reading per day is spent before a bad range would show. A day not
+ * over yet is not such a mistake : the run scans what it can, and says so (#57).
  */
 class RunArgsTest {
     private val today = LocalDate.of(2026, 10, 25)
@@ -37,11 +41,35 @@ class RunArgsTest {
         }
     }
 
+    // Tilt, 30/10 : a range ending on a day not over stopped on a stack trace, its past days unread.
     @Test
-    fun `today or later is refused — the job reads end-of-day data`() {
-        assertFailsWith<IllegalArgumentException> { RunArgs.parse(arrayOf("--from", "2026-10-25"), today) }
+    fun `a last day not over yet stops the run at the previous trading day, and says so`() {
+        val run = RunArgs.parse(arrayOf("--from", "2026-10-21", "--to", "2026-10-25"), today)
+
+        assertEquals(day(21), run.from)
+        assertNull(run.to)
+        assertContains(assertNotNull(run.note), "2026-10-25")
+    }
+
+    @Test
+    fun `a first day not over yet scans the previous trading day, and says so`() {
+        val alone = RunArgs.parse(arrayOf("--from", "2026-10-25"), today)
+        val later = RunArgs.parse(arrayOf("--from", "2026-10-26", "--to", "2026-10-27"), today)
+
+        assertEquals(RunArgs(note = alone.note), alone)
+        assertEquals(RunArgs(note = later.note), later)
+        assertContains(assertNotNull(alone.note), "2026-10-25")
+    }
+
+    @Test
+    fun `a range wholly in the past carries no note`() {
+        assertNull(RunArgs.parse(arrayOf("--from", "2026-10-21", "--to", "2026-10-24"), today).note)
+    }
+
+    @Test
+    fun `a range running backwards is refused, even past today`() {
         assertFailsWith<IllegalArgumentException> {
-            RunArgs.parse(arrayOf("--from", "2026-10-21", "--to", "2026-10-25"), today)
+            RunArgs.parse(arrayOf("--from", "2026-10-27", "--to", "2026-10-26"), today)
         }
     }
 
