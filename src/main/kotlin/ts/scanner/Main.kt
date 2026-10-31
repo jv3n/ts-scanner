@@ -16,6 +16,7 @@ private val NEW_YORK: ZoneId = ZoneId.of("America/New_York")
 fun main(args: Array<String>) {
     val today = LocalDate.now(NEW_YORK)
     val run = RunArgs.parse(args, today)
+    run.note?.let(::println)
     val tradeUrl = requireNotNull(envOrNull("TRADE_URL")) { "TRADE_URL is missing — trade's base URL" }
     val token = requireNotNull(envOrNull("TRADE_API_TOKEN")) { "TRADE_API_TOKEN is missing — trade's scanner token" }
     val massive = MassiveProvider.fromEnv()
