@@ -2,14 +2,20 @@ package ts.scanner
 
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
+import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.defaultRequest
+import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.parameter
+import io.ktor.client.statement.HttpResponse
 import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpStatusCode
+import io.ktor.http.isSuccess
 import io.ktor.serialization.kotlinx.json.json
+import kotlinx.coroutines.delay
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.doubleOrNull
@@ -21,6 +27,8 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.temporal.ChronoUnit
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.minutes
 
 /** Static/reference data for one ticker. */
 data class TickerReference(
@@ -115,6 +123,8 @@ interface MarketDataProvider {
  */
 class MassiveProvider(
     private val apiKey: String,
+    engine: HttpClientEngine = CIO.create(),
+    private val rateLimitWait: Duration = 1.minutes,
 ) : MarketDataProvider {
     companion object {
         const val MASSIVE_REST_BASE = "https://api.massive.com"
@@ -123,6 +133,9 @@ class MassiveProvider(
 
         /** Enough calendar days to clear a weekend plus a holiday and still find 2 sessions. */
         private const val MAX_SESSION_PROBES = 7
+
+        /** The quota is a rolling minute : a few waits clear it, even with another run on the key. */
+        private const val RATE_LIMIT_RETRIES = 5
 
         fun fromEnv(): MassiveProvider {
             val key = envOrNull("MASSIVE_API_KEY") ?: envOrNull("POLYGON_API_KEY")
@@ -139,18 +152,37 @@ class MassiveProvider(
 
     // Bearer header instead of ?apiKey= so the key never leaks into URLs/logs.
     private val client =
-        HttpClient(CIO) {
+        HttpClient(engine) {
             install(ContentNegotiation) { json(json) }
             defaultRequest { header(HttpHeaders.Authorization, "Bearer $apiKey") }
         }
 
     fun close() = client.close()
 
+    /**
+     * The answer's JSON. An error is never an empty answer (#59) : a 429 has no `results` either, and
+     * read as one it turned a trading day into a holiday and a ticker's bars into « none served ».
+     */
+    private suspend fun fetch(
+        url: String,
+        block: HttpRequestBuilder.() -> Unit = {},
+    ): JsonObject {
+        repeat(RATE_LIMIT_RETRIES) {
+            val response = client.get(url, block)
+            if (response.status != HttpStatusCode.TooManyRequests) return response.json(url)
+            delay(rateLimitWait)
+        }
+        return client.get(url, block).json(url)
+    }
+
+    private suspend fun HttpResponse.json(url: String): JsonObject {
+        check(status.isSuccess()) { "Massive answered $status on ${url.removePrefix(MASSIVE_REST_BASE)}" }
+        return body()
+    }
+
     override suspend fun getReference(ticker: String): TickerReference {
         val res =
-            client
-                .get("$MASSIVE_REST_BASE/v3/reference/tickers/$ticker")
-                .body<JsonObject>()["results"]
+            fetch("$MASSIVE_REST_BASE/v3/reference/tickers/$ticker")["results"]
                 ?.jsonObject
         val shares =
             res?.get("share_class_shares_outstanding")?.jsonPrimitive?.longOrNull
@@ -201,12 +233,11 @@ class MassiveProvider(
         ticker: String,
         date: LocalDate,
     ): List<Bar> =
-        client
-            .get("$MASSIVE_REST_BASE/v2/aggs/ticker/${ticker.uppercase()}/range/1/minute/$date/$date") {
-                parameter("adjusted", "false")
-                parameter("sort", "asc")
-                parameter("limit", 50000)
-            }.body<JsonObject>()["results"]
+        fetch("$MASSIVE_REST_BASE/v2/aggs/ticker/${ticker.uppercase()}/range/1/minute/$date/$date") {
+            parameter("adjusted", "false")
+            parameter("sort", "asc")
+            parameter("limit", 50000)
+        }["results"]
             ?.jsonArray
             .orEmpty()
             .mapNotNull { el ->
@@ -233,12 +264,11 @@ class MassiveProvider(
         ticker: String,
         date: LocalDate,
     ): Double? =
-        client
-            .get("$MASSIVE_REST_BASE/v2/aggs/ticker/${ticker.uppercase()}/range/1/day/${date.minusDays(7)}/${date.minusDays(1)}") {
-                parameter("adjusted", "false")
-                parameter("sort", "desc")
-                parameter("limit", 1)
-            }.body<JsonObject>()["results"]
+        fetch("$MASSIVE_REST_BASE/v2/aggs/ticker/${ticker.uppercase()}/range/1/day/${date.minusDays(7)}/${date.minusDays(1)}") {
+            parameter("adjusted", "false")
+            parameter("sort", "desc")
+            parameter("limit", 1)
+        }["results"]
             ?.jsonArray
             ?.firstOrNull()
             ?.jsonObject
@@ -254,10 +284,9 @@ class MassiveProvider(
         adjusted: Boolean,
     ): Map<String, DailyBar>? {
         val results =
-            client
-                .get("$MASSIVE_REST_BASE/v2/aggs/grouped/locale/us/market/stocks/$date") {
-                    parameter("adjusted", adjusted.toString())
-                }.body<JsonObject>()["results"]
+            fetch("$MASSIVE_REST_BASE/v2/aggs/grouped/locale/us/market/stocks/$date") {
+                parameter("adjusted", adjusted.toString())
+            }["results"]
                 ?.jsonArray
                 .orEmpty()
         if (results.isEmpty()) return null
@@ -293,13 +322,12 @@ class MassiveProvider(
     ): Set<String> {
         if (tickers.isEmpty()) return emptySet()
         val results =
-            client
-                .get("$MASSIVE_REST_BASE/stocks/v1/splits") {
-                    parameter("ticker.any_of", tickers.joinToString(",") { it.uppercase() })
-                    parameter("execution_date.gte", from.toString())
-                    parameter("execution_date.lte", to.toString())
-                    parameter("limit", 1000)
-                }.body<JsonObject>()["results"]
+            fetch("$MASSIVE_REST_BASE/stocks/v1/splits") {
+                parameter("ticker.any_of", tickers.joinToString(",") { it.uppercase() })
+                parameter("execution_date.gte", from.toString())
+                parameter("execution_date.lte", to.toString())
+                parameter("limit", 1000)
+            }["results"]
                 ?.jsonArray
                 .orEmpty()
         return results
@@ -328,13 +356,12 @@ class MassiveProvider(
     override suspend fun getShortInterest(tickers: List<String>): Map<String, ShortInterest> {
         if (tickers.isEmpty()) return emptyMap()
         val results =
-            client
-                .get("$MASSIVE_REST_BASE/stocks/v1/short-interest") {
-                    parameter("ticker.any_of", tickers.joinToString(",") { it.uppercase() })
-                    parameter("sort", "settlement_date.desc")
-                    // Room for several settlement dates per ticker, so none is missed.
-                    parameter("limit", tickers.size * 8)
-                }.body<JsonObject>()["results"]
+            fetch("$MASSIVE_REST_BASE/stocks/v1/short-interest") {
+                parameter("ticker.any_of", tickers.joinToString(",") { it.uppercase() })
+                parameter("sort", "settlement_date.desc")
+                // Room for several settlement dates per ticker, so none is missed.
+                parameter("limit", tickers.size * 8)
+            }["results"]
                 ?.jsonArray
                 .orEmpty()
         return results
