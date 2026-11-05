@@ -17,11 +17,12 @@ data class DoubleTopRules(
     val maxEchoOverApexPercent: Double = 6.0,
     /**
      * How long each leg may take, in minutes — a push that takes all morning is no push. Set from the
-     * sheet's own double tops : A under the hour, R a quarter of an hour at most.
+     * sheet's own double tops : A under the hour, R a quarter of an hour at most. E from the review
+     * (#62) : the validated Echoes came 2 to 21 min after the Rejection, the « too far » ones 28 to 42.
      */
     val maxExtensionMinutes: Long = 60,
     val maxRejectionMinutes: Long = 30,
-    val maxEchoMinutes: Long = 60,
+    val maxEchoMinutes: Long = 25,
     /**
      * A swing low or high is confirmed once the price turns this much off it — on price alone, over
      * the session only (no double top is taken in the extended hours). Thin-print noise is left to
